@@ -64,13 +64,6 @@ vim.api.nvim_create_autocmd('FileType', {
 -- Basic key mappings
 local opts = { noremap = true, silent = true }
 
--- Smart save function
-local function smart_save()
-  vim.cmd('write')
-  print('Saved: ' .. vim.fn.expand('%:t'))
-  vim.cmd('startinsert')
-end
-
 
 -- Helper function for user input
 local function get_user_input(prompt, callback)
@@ -87,7 +80,15 @@ end
 
 -- Enhanced smart save function
 local function smart_save()
-  if vim.fn.expand('%') == '' then
+  local filename = vim.fn.expand('%')
+  local bufname = vim.api.nvim_buf_get_name(0)
+  local buftype = vim.api.nvim_buf_get_option(0, 'buftype')
+  
+  
+  -- Check if buffer has a filename - improved detection
+  -- A file has a name if filename is not empty OR bufname is not empty AND it's not a special buffer
+  if (filename == '' and bufname == '') or buftype ~= '' then
+    -- Truly unnamed buffer or special buffer - prompt for save as
     get_user_input('Save as: ', function(input)
       if input and input ~= '' then
         vim.cmd('write ' .. input)
@@ -96,15 +97,71 @@ local function smart_save()
       vim.cmd('startinsert')
     end)
   else
+    -- File has a name - just save it
     vim.cmd('write')
-    print('Saved: ' .. vim.fn.expand('%:t'))
+    local display_name = vim.fn.expand('%:t')
+    if display_name == '' then
+      display_name = vim.fn.fnamemodify(bufname, ':t')
+    end
+    print('Saved: ' .. display_name)
     vim.cmd('startinsert')
   end
 end
 
 -- Enhanced smart quit function
 local function smart_quit()
-  -- FIRST: Switch to a main buffer window to ensure we're not in a floating window
+  -- FIRST: Check for unsaved changes and handle save confirmation BEFORE any buffer manipulation
+  local has_changes = false
+  local filename = ''
+  local should_quit = true
+  
+  -- Check all buffers for unsaved changes and get the filename of the current buffer
+  for _, buf_id in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(buf_id) and vim.api.nvim_buf_get_option(buf_id, 'modified') then
+      has_changes = true
+      -- If this is the current buffer, get its filename
+      if buf_id == vim.api.nvim_get_current_buf() then
+        filename = vim.fn.expand('%:t')
+        local bufname = vim.api.nvim_buf_get_name(0)
+        
+        if filename == '' and bufname ~= '' then
+          filename = vim.fn.fnamemodify(bufname, ':t')
+        end
+        
+        if filename == '' then filename = 'Untitled' end
+      end
+      break
+    end
+  end
+  
+  -- Handle save confirmation and perform save BEFORE any cleanup
+  if has_changes then
+    local choice = vim.fn.confirm(
+      'Do you want to save the changes to ' .. filename .. '?',
+      '&Yes\n&No\n&Cancel',
+      3
+    )
+    
+    if choice == 1 then
+      -- Save NOW before any buffer manipulation
+      if filename ~= 'Untitled' then
+        vim.cmd('silent! write')
+      else
+        -- Truly unnamed file - prompt for filename
+        local save_name = vim.fn.input('Save as: ')
+        if save_name and save_name ~= '' then
+          vim.cmd('silent! write ' .. save_name)
+        else
+          return  -- Cancel if no filename provided
+        end
+      end
+    elseif choice == 3 then
+      return  -- Cancel - don't quit
+    end
+    -- choice == 2 means "No" - proceed to quit without saving
+  end
+  
+  -- SECOND: Switch to a main buffer window to ensure we're not in a floating window
   local main_win_found = false
   for _, win_id in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     if vim.api.nvim_win_is_valid(win_id) and vim.api.nvim_win_get_config(win_id).relative == '' then
@@ -163,11 +220,12 @@ local function smart_quit()
   vim.cmd('setlocal nonumber')
   vim.cmd('setlocal norelativenumber')
   
+  
   -- Clear terminal screen and ensure cursor is at top
   -- Use only the terminal's built-in clear command for proper cursor positioning
   os.execute('clear 2>/dev/null || true')
   
-  -- Force quit without saving to avoid ALL prompts and press enter messages
+  -- Force quit without saving (we already handled saving above)
   vim.cmd('silent! qall!')
 end
 
