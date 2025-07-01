@@ -803,7 +803,7 @@ vim.keymap.set('i', '<C-Left>', function()
 end, { expr = true })
 vim.keymap.set('i', '<C-Right>', function()
   vim.g.preferred_column = nil
-  return '<C-o>e'
+  return '<C-o>w'
 end, { expr = true })
 
 -- Ctrl+Up/Down for paragraph navigation with centering
