@@ -22,6 +22,12 @@ vim.opt.virtualedit = 'block'    -- Allow cursor beyond end of line in visual bl
 vim.opt.startofline = false      -- Keep cursor column when moving vertically
 vim.opt.backspace = 'indent,eol,start'  -- Allow backspace over everything
 
+-- Optimize key mapping timeouts for instant response
+vim.opt.timeout = true           -- Enable timeout for key sequences
+vim.opt.timeoutlen = 100         -- Very short timeout - 100ms
+vim.opt.ttimeout = true          -- Enable timeout for key codes
+vim.opt.ttimeoutlen = 5          -- Extremely short timeout for key codes
+
 -- Custom terminal title showing filename
 vim.opt.title = true
 vim.opt.titlestring = '%t - Neovim'  -- %t = filename
@@ -235,8 +241,8 @@ vim.keymap.set({'i', 'n'}, '<C-q>', function() smart_quit() end, opts)
 vim.keymap.set({'i', 'n'}, '<M-F4>', function() smart_quit() end, opts)
 
 -- Standard editing shortcuts
-vim.keymap.set({'i', 'n'}, '<C-z>', '<Esc>ui', opts)
-vim.keymap.set({'i', 'n'}, '<C-y>', '<Esc><C-r>i', opts)
+vim.keymap.set({'i', 'n'}, '<C-z>', '<Esc>:silent! undo<CR>i', opts)
+vim.keymap.set({'i', 'n'}, '<C-y>', '<Esc>:silent! redo<CR>i', opts)
 vim.keymap.set({'i', 'n'}, '<C-a>', '<Esc>ggVG', opts)
 -- Sublime-like search function
 local function sublime_search()
@@ -596,48 +602,37 @@ vim.keymap.set({'i', 'n'}, '<C-f>', function() sublime_replace() end, opts)
 -- Copy/Paste
 -- Visual mode: copy/cut with proper newline handling and Windows-like selection
 vim.keymap.set('v', '<C-c>', function()
-  -- Simple approach: yank, get content, trim, set clipboard
+  -- Simple approach: yank, get content, clean, set clipboard
   vim.cmd('normal! y')
   local content = vim.fn.getreg('"')
   
-  -- Remove trailing newline if present
+  -- Remove trailing newline if present (for cleaner clipboard content)
   if content:sub(-1) == '\n' then
     content = content:sub(1, -2)
   end
   
-  -- For Windows-like behavior, also remove the last character if it seems like
-  -- an extra character from inclusive selection
-  -- This is a simple heuristic - if content ends with a non-newline character
-  -- and we're doing a simple selection, trim one character
-  local mode = vim.fn.visualmode()
-  if mode == 'v' and #content > 1 and content:sub(-1) ~= '\n' then
-    -- Check if this looks like we grabbed an extra character
-    -- Only trim if the content doesn't end with whitespace (which would be intentional)
-    local last_char = content:sub(-1)
-    if not last_char:match('%s') then
-      content = content:sub(1, -2)
-    end
-  end
-  
-  -- Set to system clipboard
+  -- Set to system clipboard without any additional trimming
   vim.fn.setreg('+', content)
   vim.cmd('normal! gv')  -- Restore selection
 end, opts)
 
 vim.keymap.set('v', '<C-x>', function()
-  -- First, delete the selection (this also yanks it to the default register)
-  vim.cmd('normal! d')
+  -- Capture the selection using yank
+  vim.cmd('normal! "zy')  -- Yank to register z
+  local yanked_content = vim.fn.getreg('z')
   
-  -- Get what was deleted from the default register
-  local content = vim.fn.getreg('"')
-  
-  -- Remove trailing newline if it exists
+  -- Clean up the content - remove trailing newline if present
+  local content = yanked_content
   if content:sub(-1) == '\n' then
     content = content:sub(1, -2)
   end
   
-  -- Set cleaned content to system clipboard
+  -- Set to system clipboard
   vim.fn.setreg('+', content)
+  
+  -- Restore visual selection and delete it
+  vim.cmd('normal! gv')
+  vim.cmd('normal! d')
   
   vim.cmd('startinsert')
 end, opts)
@@ -745,7 +740,10 @@ vim.keymap.set('i', '<Down>', function()
 end, opts)
 
 -- Text selection with Shift+arrows
-vim.keymap.set('i', '<S-Left>', '<C-o>v<Left>', opts)
+vim.keymap.set('i', '<S-Left>', function()
+  -- Move left first, then start visual selection and move right to avoid including character under cursor
+  return '<C-o><Left><C-o>v<Right>'
+end, { expr = true })
 vim.keymap.set('i', '<S-Right>', '<C-o>v<Right>', opts)
 vim.keymap.set('i', '<S-Up>', '<C-o>vgk', opts)
 vim.keymap.set('i', '<S-Down>', '<C-o>vgj', opts)
@@ -959,6 +957,17 @@ local function setup_colors()
   vim.cmd('highlight LineNr guifg=#505050 guibg=#1a1a1a')
   vim.cmd('highlight CursorLineNr guifg=#56b6c2 guibg=#1a1a1a')
   vim.cmd('highlight Visual guibg=#3a3a3a')
+  vim.cmd('highlight Cursor guibg=#3a3a3a guifg=#c5c5c5')  -- Match visual selection
+  vim.cmd('highlight lCursor guibg=#3a3a3a guifg=#c5c5c5')  -- Language cursor
+  vim.cmd('highlight CursorIM guibg=#3a3a3a guifg=#c5c5c5')  -- Input method cursor
+  vim.cmd('highlight TermCursor guibg=#3a3a3a guifg=#c5c5c5')  -- Terminal cursor
+  vim.cmd('highlight TermCursorNC guibg=#3a3a3a guifg=#c5c5c5')  -- Terminal cursor not current
+  vim.cmd('highlight vCursor guibg=#3a3a3a guifg=#c5c5c5')  -- Visual cursor
+  vim.cmd('highlight CursorLine guibg=#3a3a3a')  -- Cursor line
+  vim.cmd('highlight CursorColumn guibg=#3a3a3a')  -- Cursor column
+  -- Set cursor to thin line in visual mode, thick line in insert mode
+  vim.cmd('highlight InsertCursor guibg=#d4a5a5 guifg=#ffffff')  -- Dusty sakura cursor for insert mode
+  vim.opt.guicursor = 'v:hor20-Cursor,i:ver25-InsertCursor,o:hor20-Cursor,n:block-Cursor'
   vim.cmd('highlight StatusLine guifg=#c5c5c5 guibg=#222222')
   vim.cmd('highlight Comment guifg=#707070 gui=italic')
   vim.cmd('highlight Constant guifg=#b8956b')  -- More muted orange
@@ -1117,21 +1126,42 @@ local function highlight_surrounding_brackets_multiline()
   end
 end
 
--- Set up autocmd for bracket highlighting
+-- Set up autocmd for bracket highlighting with debouncing
+local bracket_timer = nil
+
 vim.api.nvim_create_autocmd({'CursorMoved', 'CursorMovedI'}, {
-  callback = highlight_surrounding_brackets_multiline
+  callback = function()
+    -- Cancel previous timer if it exists
+    if bracket_timer then
+      bracket_timer:stop()
+      bracket_timer:close()
+    end
+    
+    -- Set a short delay to avoid excessive highlighting during rapid cursor movement
+    bracket_timer = vim.loop.new_timer()
+    bracket_timer:start(100, 0, vim.schedule_wrap(function()
+      highlight_surrounding_brackets_multiline()
+      bracket_timer:close()
+      bracket_timer = nil
+    end))
+  end
 })
 
 -- Auto-wrapping function for selected text
 local function wrap_selection(open_char, close_char)
-  -- Get current visual selection
+  -- Get current visual selection using vim commands (more reliable)
   vim.cmd('normal! "vy')  -- Yank visual selection to v register
   local selected_text = vim.fn.getreg('v')
   
+  -- Trim leading and trailing whitespace from selection
+  local trimmed_text = selected_text:match('^%s*(.-)%s*$')
+  
   -- Replace selection with wrapped text
-  local wrapped_text = open_char .. selected_text .. close_char
-  vim.fn.setreg('v', wrapped_text)
-  vim.cmd('normal! "vp')  -- Paste wrapped text
+  local wrapped_text = open_char .. trimmed_text .. close_char
+  
+  -- Use a simpler replacement method: paste over selection
+  vim.fn.setreg('w', wrapped_text)
+  vim.cmd('normal! gv"wp')  -- Restore selection and paste over it
   
   -- Return to insert mode
   vim.cmd('startinsert')
