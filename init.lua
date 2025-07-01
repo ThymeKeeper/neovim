@@ -288,7 +288,7 @@ local function sublime_replace()
     'Find:    ',
     'Replace: ',
     '',
-    'Ctrl+A: Replace All | Ctrl+H: Replace Current | Ctrl+Left/Right: Next/Previous Match | Esc: Cancel'
+    'Ctrl+H: Replace | Ctrl+A: Replace All | Ctrl+←/→: Next/Prev'
   })
   
   -- Make buffer modifiable
@@ -970,26 +970,26 @@ local function setup_colors()
   vim.opt.guicursor = 'v:hor20-Cursor,i:ver25-InsertCursor,o:hor20-Cursor,n:block-Cursor'
   vim.cmd('highlight StatusLine guifg=#c5c5c5 guibg=#222222')
   vim.cmd('highlight Comment guifg=#707070 gui=italic')
-  vim.cmd('highlight Constant guifg=#b8956b')  -- More muted orange
-  vim.cmd('highlight String guifg=#8aa86b')   -- More muted green
-  vim.cmd('highlight Number guifg=#b8956b')   -- More muted orange
-  vim.cmd('highlight Identifier guifg=#c77579')  -- More muted red
-  vim.cmd('highlight Function guifg=#5b9bc7')   -- More muted blue
-  vim.cmd('highlight Statement guifg=#b378c1')  -- More muted purple
-  vim.cmd('highlight Keyword guifg=#b378c1')    -- More muted purple
-  vim.cmd('highlight Operator guifg=#5a9ca6')   -- More muted cyan
-  vim.cmd('highlight Type guifg=#5a9ca6')       -- More muted cyan
-  vim.cmd('highlight Special guifg=#5b9bc7')    -- More muted blue
+  vim.cmd('highlight Constant guifg=#b8956b gui=NONE')  -- More muted orange
+  vim.cmd('highlight String guifg=#8aa86b gui=NONE')   -- More muted green
+  vim.cmd('highlight Number guifg=#b8956b gui=NONE')   -- More muted orange
+  vim.cmd('highlight Identifier guifg=#c77579 gui=NONE')  -- More muted red
+  vim.cmd('highlight Function guifg=#5b9bc7 gui=NONE')   -- More muted blue
+  vim.cmd('highlight Statement guifg=#8a6a93 gui=NONE')  -- Even more muted purple
+  vim.cmd('highlight Keyword guifg=#8a6a93 gui=NONE')    -- Even more muted purple
+  vim.cmd('highlight Operator guifg=#5a9ca6 gui=NONE')   -- More muted cyan
+  vim.cmd('highlight Type guifg=#5a9ca6 gui=NONE')       -- More muted cyan
+  vim.cmd('highlight Special guifg=#5b9bc7 gui=NONE')    -- More muted blue
   vim.cmd('highlight Search guifg=#1a1a1a guibg=#c2a66b')  -- More muted yellow
   vim.cmd('highlight IncSearch guifg=#1a1a1a guibg=#b8956b')  -- More muted orange
   vim.cmd('highlight Pmenu guifg=#c5c5c5 guibg=#2a2a2a')
-  vim.cmd('highlight PmenuSel guifg=#1a1a1a guibg=#56b6c2')
+  vim.cmd('highlight PmenuSel guifg=#1a1a1a guibg=#5a7a85')
   vim.cmd('highlight PmenuSbar guibg=#3a3a3a')
   vim.cmd('highlight PmenuThumb guibg=#56b6c2')
   vim.cmd('highlight NonText guifg=#2a2a2a guibg=#1a1a1a')  -- Make ~ characters subtle
   
   -- Bracket matching highlights (red color)
-  vim.cmd('highlight MatchParen guifg=#ff6b6b guibg=#404040 gui=bold')
+  vim.cmd('highlight MatchParen guifg=#ff6b6b guibg=#404040')
 end
 
 setup_colors()
