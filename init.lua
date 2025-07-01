@@ -71,13 +71,6 @@ local function smart_save()
   vim.cmd('startinsert')
 end
 
--- Smart quit function
-local function smart_quit()
-  if vim.bo.modified then
-    vim.cmd('write')
-  end
-  vim.cmd('quit')
-end
 
 -- Helper function for user input
 local function get_user_input(prompt, callback)
@@ -111,38 +104,71 @@ end
 
 -- Enhanced smart quit function
 local function smart_quit()
-  if vim.bo.modified then
-    local filename = vim.fn.expand('%:t')
-    if filename == '' then filename = 'Untitled' end
-    
-    local choice = vim.fn.confirm(
-      'Do you want to save the changes to ' .. filename .. '?',
-      '&Yes\n&No\n&Cancel',
-      3
-    )
-    
-    if choice == 1 then
-      if vim.fn.expand('%') ~= '' then
-        vim.cmd('write')
-        vim.cmd('quit')
-      else
-        get_user_input('Save as: ', function(input)
-          if input and input ~= '' then
-            vim.cmd('write ' .. input)
-            vim.cmd('quit')
-          else
-            vim.cmd('startinsert')
-          end
+  -- FIRST: Switch to a main buffer window to ensure we're not in a floating window
+  local main_win_found = false
+  for _, win_id in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if vim.api.nvim_win_is_valid(win_id) and vim.api.nvim_win_get_config(win_id).relative == '' then
+      vim.api.nvim_set_current_win(win_id)
+      main_win_found = true
+      break
+    end
+  end
+  
+  -- If no main window found, create a new buffer
+  if not main_win_found then
+    vim.cmd('enew')
+  end
+  
+  -- Close all open floating windows and delete their buffers to prevent terminal leftover
+  for _, win_id in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if vim.api.nvim_win_is_valid(win_id) and vim.api.nvim_win_get_config(win_id).relative ~= '' then
+      local buf_id = vim.api.nvim_win_get_buf(win_id)
+      -- Close floating window first
+      vim.api.nvim_win_close(win_id, true)
+      -- Then delete its buffer
+      if vim.api.nvim_buf_is_valid(buf_id) then
+        pcall(function()
+          vim.api.nvim_buf_delete(buf_id, { force = true })
         end)
       end
-    elseif choice == 2 then
-      vim.cmd('quit!')
-    else
-      vim.cmd('startinsert')
     end
-  else
-    vim.cmd('quit')
   end
+
+  -- Delete all remaining unnamed/scratch buffers
+  for _, buf_id in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(buf_id) then
+      local buf_name = vim.api.nvim_buf_get_name(buf_id)
+      local buf_type = vim.api.nvim_buf_get_option(buf_id, 'buftype')
+      -- Delete if unnamed OR if it's a special buffer type (nofile, prompt, etc.)
+      if buf_name == '' or buf_type ~= '' then
+        pcall(function()
+          vim.api.nvim_buf_delete(buf_id, { force = true })
+        end)
+      end
+    end
+  end
+
+  -- Clear all matches and highlights
+  vim.fn.clearmatches()
+  vim.cmd('nohlsearch')
+  
+  -- Force clear the entire screen to prevent terminal leftover
+  vim.cmd('mode')  -- Switch to terminal mode briefly
+  vim.cmd('redraw!')  -- Clear display artifacts
+  
+  -- Create a completely clean buffer to ensure terminal doesn't capture floating window content
+  vim.cmd('enew!')
+  vim.cmd('setlocal buftype=nofile')
+  vim.cmd('setlocal noswapfile')
+  vim.cmd('setlocal nonumber')
+  vim.cmd('setlocal norelativenumber')
+  
+  -- Clear terminal screen and ensure cursor is at top
+  -- Use only the terminal's built-in clear command for proper cursor positioning
+  os.execute('clear 2>/dev/null || true')
+  
+  -- Force quit without saving to avoid ALL prompts and press enter messages
+  vim.cmd('silent! qall!')
 end
 
 -- File operations
@@ -154,8 +180,360 @@ vim.keymap.set({'i', 'n'}, '<M-F4>', function() smart_quit() end, opts)
 vim.keymap.set({'i', 'n'}, '<C-z>', '<Esc>ui', opts)
 vim.keymap.set({'i', 'n'}, '<C-y>', '<Esc><C-r>i', opts)
 vim.keymap.set({'i', 'n'}, '<C-a>', '<Esc>ggVG', opts)
-vim.keymap.set({'i', 'n'}, '<C-f>', '<Esc>/', opts)
-vim.keymap.set({'i', 'n'}, '<C-h>', '<Esc>:%s/', opts)
+-- Sublime-like search function
+local function sublime_search()
+  -- Enable incremental search and highlighting
+  vim.opt.incsearch = true
+  vim.opt.hlsearch = true
+  
+  -- Start search and return to insert mode after
+  vim.cmd('normal! /')
+  vim.cmd('startinsert')
+end
+
+-- Enhanced Sublime-like find and replace with floating input fields
+local function sublime_replace()
+  -- Enable incremental search and highlighting
+  vim.opt.incsearch = true
+  vim.opt.hlsearch = true
+  
+  -- Set better highlight for current match
+  vim.cmd('highlight CurSearch guifg=#1a1a1a guibg=#ff6b6b gui=bold')
+  vim.cmd('highlight Search guifg=#1a1a1a guibg=#ffeb3b gui=bold')
+  
+  -- Create a floating window for find/replace anchored to bottom
+  local buf = vim.api.nvim_create_buf(false, true)
+  local width = 60
+  local height = 4
+  local win_opts = {
+    relative = 'editor',
+    width = width,
+    height = height,
+    col = (vim.o.columns - width) / 2,
+    row = vim.o.lines - height - 3,  -- Anchor to bottom
+    anchor = 'NW',
+    style = 'minimal',
+    border = 'rounded',
+    title = 'Find and Replace'
+  }
+  
+  local win = vim.api.nvim_open_win(buf, true, win_opts)
+  
+  -- Set up the buffer content
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+    'Find:    ',
+    'Replace: ',
+    '',
+    'Ctrl+A: Replace All | Ctrl+H: Replace Current | Ctrl+Left/Right: Next/Previous Match | Esc: Cancel'
+  })
+  
+  -- Make buffer modifiable
+  vim.api.nvim_buf_set_option(buf, 'modifiable', true)
+  vim.api.nvim_buf_set_option(buf, 'buftype', '')
+  
+  -- Position cursor at the end of "Find: " and enter insert mode
+  vim.api.nvim_win_set_cursor(win, {1, 9})
+  
+  -- Variables to store find and replace text
+  local find_text = ''
+  local replace_text = ''
+  local current_field = 'find'  -- 'find' or 'replace'
+  
+  -- Function to update search highlighting without moving cursor
+  local function update_search(text)
+    if text and text ~= '' then
+      -- Save current window and cursor position
+      local current_win = vim.api.nvim_get_current_win()
+      local current_cursor = vim.api.nvim_win_get_cursor(win)
+      
+      -- Clear previous search
+      vim.cmd('nohlsearch')
+      -- Set new search and highlight
+      vim.fn.setreg('/', text)
+      vim.cmd('set hlsearch')
+      
+      -- Temporarily switch to main window to avoid highlighting in floating window
+      local main_windows = {}
+      for _, w in ipairs(vim.api.nvim_list_wins()) do
+        if w ~= win then
+          table.insert(main_windows, w)
+        end
+      end
+      
+      -- Don't jump to matches - just enable highlighting
+      -- pcall(function() vim.cmd('normal! n') end)  -- Removed this line
+      
+      -- Ensure we stay in the floating window
+      vim.api.nvim_set_current_win(win)
+      vim.api.nvim_win_set_cursor(win, current_cursor)
+    else
+      vim.cmd('nohlsearch')
+    end
+  end
+  
+  -- Key mappings for the floating window
+  local keymap_opts = { noremap = true, silent = true, buffer = buf }
+  
+  -- Track which line we're on
+  local function get_current_field()
+    local cursor_pos = vim.api.nvim_win_get_cursor(win)
+    return cursor_pos[1] == 1 and 'find' or 'replace'
+  end
+  
+  -- Get text from buffer
+  local function extract_text()
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    if lines[1] and #lines[1] >= 9 then
+      find_text = lines[1]:sub(10)
+      update_search(find_text)
+    end
+    if lines[2] and #lines[2] >= 9 then
+      replace_text = lines[2]:sub(10)
+    end
+  end
+  
+  -- Tab to switch between fields
+  vim.keymap.set('i', '<Tab>', function()
+    extract_text()
+    current_field = get_current_field()
+    if current_field == 'find' then
+      vim.api.nvim_win_set_cursor(win, {2, 9 + #replace_text})
+    else
+      vim.api.nvim_win_set_cursor(win, {1, 9 + #find_text})
+    end
+  end, keymap_opts)
+  
+  -- Ctrl+A for replace all
+  vim.keymap.set('i', '<C-a>', function()
+    extract_text()
+    if find_text ~= '' then
+      -- Save floating window position
+      local float_cursor = vim.api.nvim_win_get_cursor(win)
+      
+      -- Switch to main buffer temporarily to do replacement
+      local main_buf = nil
+      for _, w in ipairs(vim.api.nvim_list_wins()) do
+        if w ~= win then
+          vim.api.nvim_set_current_win(w)
+          main_buf = vim.api.nvim_get_current_buf()
+          break
+        end
+      end
+      
+      if main_buf then
+        -- Break undo sequence before replacement
+        vim.cmd('let &undolevels = &undolevels')
+        
+        -- Replace all in the main buffer only
+        vim.cmd(':%s@' .. find_text .. '@' .. replace_text .. '@g')
+        -- Replaced all occurrences silently
+        
+        -- Break undo sequence after replacement
+        vim.cmd('let &undolevels = &undolevels')
+      end
+      
+      -- Return to floating window
+      vim.api.nvim_set_current_win(win)
+      vim.api.nvim_win_set_cursor(win, float_cursor)
+    end
+    vim.cmd('startinsert')
+  end, keymap_opts)
+
+  -- Ctrl+H for replace current and auto-advance
+  vim.keymap.set('i', '<C-h>', function()
+    extract_text()
+    if find_text and find_text ~= '' then
+      local float_cursor = vim.api.nvim_win_get_cursor(win)
+      
+      -- Switch to main buffer
+      local main_win = nil
+      for _, w in ipairs(vim.api.nvim_list_wins()) do
+        if w ~= win then main_win = w; break; end
+      end
+      
+      if main_win then
+        vim.api.nvim_set_current_win(main_win)
+        
+        vim.cmd('stopinsert') -- Ensure normal mode
+        
+        -- Break undo sequence before replacement
+        vim.cmd('let &undolevels = &undolevels')
+        
+        -- Use a simpler approach: find next match and replace it
+        vim.cmd('normal! n') -- Go to next match
+        if replace_text and replace_text ~= '' then
+          vim.cmd('normal! ciw' .. replace_text) -- Change inner word
+          vim.cmd('normal! \\<Esc>') -- Exit insert mode
+        end
+        
+        -- Break undo sequence after replacement
+        vim.cmd('let &undolevels = &undolevels')
+        
+        -- Replaced and advanced to next match silently
+        
+        -- Return to floating window
+        vim.api.nvim_set_current_win(win)
+        vim.api.nvim_win_set_cursor(win, float_cursor)
+      else
+        -- Could not find main window
+      end
+    end
+    vim.cmd('startinsert') -- Stay in insert mode in the floating window
+  end, keymap_opts)
+
+  -- Ctrl+Left/Right to navigate matches with wrapping
+  vim.keymap.set('i', '<C-Left>', function()
+    -- Save floating window position
+    local float_cursor = vim.api.nvim_win_get_cursor(win)
+    
+    -- Switch to main buffer to navigate
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if w ~= win then
+        vim.api.nvim_set_current_win(w)
+        break
+      end
+    end
+    
+    -- Try to go to previous match
+    local old_pos = vim.api.nvim_win_get_cursor(0)
+    vim.cmd('normal! N')
+    local new_pos = vim.api.nvim_win_get_cursor(0)
+    
+    -- If we didn't move, we're at the first match, so wrap to the last
+    if old_pos[1] == new_pos[1] and old_pos[2] == new_pos[2] then
+      vim.cmd('normal! G')
+      vim.cmd('normal! N')
+    end
+    
+    -- Center the viewport on the current match (vertical and horizontal)
+    vim.cmd('normal! zz')  -- Vertical centering
+    vim.cmd('normal! zs')  -- Horizontal centering (scroll left)
+    vim.cmd('normal! ze')  -- Horizontal centering (scroll right)
+    
+    -- Return to floating window
+    vim.api.nvim_set_current_win(win)
+    vim.api.nvim_win_set_cursor(win, float_cursor)
+  end, keymap_opts)
+  
+  vim.keymap.set('i', '<C-Right>', function()
+    -- Save floating window position
+    local float_cursor = vim.api.nvim_win_get_cursor(win)
+    
+    -- Switch to main buffer to navigate
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if w ~= win then
+        vim.api.nvim_set_current_win(w)
+        break
+      end
+    end
+    
+    -- Try to go to next match
+    local old_pos = vim.api.nvim_win_get_cursor(0)
+    vim.cmd('normal! n')
+    local new_pos = vim.api.nvim_win_get_cursor(0)
+    
+    -- If we didn't move, we're at the last match, so wrap to the first
+    if old_pos[1] == new_pos[1] and old_pos[2] == new_pos[2] then
+      vim.cmd('normal! gg')
+      vim.cmd('normal! n')
+    end
+    
+    -- Center the viewport on the current match (vertical and horizontal)
+    vim.cmd('normal! zz')  -- Vertical centering
+    vim.cmd('normal! zs')  -- Horizontal centering (scroll left)
+    vim.cmd('normal! ze')  -- Horizontal centering (scroll right)
+    
+    -- Return to floating window
+    vim.api.nvim_set_current_win(win)
+    vim.api.nvim_win_set_cursor(win, float_cursor)
+  end, keymap_opts)
+  
+  -- Ctrl+Z for undo in main buffer while keeping floating window open
+  vim.keymap.set({'i', 'n'}, '<C-z>', function()
+    -- Save floating window position
+    local float_cursor = vim.api.nvim_win_get_cursor(win)
+    
+    -- Switch to main buffer temporarily to perform undo
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if w ~= win then
+        vim.api.nvim_set_current_win(w)
+        vim.cmd('undo')
+        -- Undo performed silently
+        break
+      end
+    end
+    
+    -- Return to floating window
+    vim.api.nvim_set_current_win(win)
+    vim.api.nvim_win_set_cursor(win, float_cursor)
+    vim.cmd('startinsert')
+  end, keymap_opts)
+  
+  -- Ctrl+Q to close window and exit application
+  vim.keymap.set({'i', 'n'}, '<C-q>', function()
+    -- Properly clean up floating window and buffer
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+    
+    -- Force delete the floating window buffer to prevent terminal leftover
+    if vim.api.nvim_buf_is_valid(buf) then
+      vim.api.nvim_buf_delete(buf, { force = true })
+    end
+    
+    vim.cmd('nohlsearch')  -- Clear any search highlighting
+    
+    -- Switch to main buffer before cleanup to prevent terminal leftover
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if w ~= win then
+        vim.api.nvim_set_current_win(w)
+        break
+      end
+    end
+    
+    vim.cmd('redraw!')     -- Force redraw to clear any display artifacts
+    
+    -- Call smart quit with no additional suppression needed
+    smart_quit()
+  end, keymap_opts)
+  
+  -- Escape to cancel (with higher priority)
+  vim.keymap.set({'i', 'n'}, '<Esc>', function()
+    if vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
+    vim.cmd('nohlsearch')  -- Clear any search highlighting
+    vim.cmd('startinsert')
+  end, { noremap = true, silent = true, buffer = buf, desc = 'Close find/replace window' })
+  
+  -- Handle live search with timer to avoid interfering with cursor movement
+  local search_timer = nil
+  
+  vim.api.nvim_create_autocmd({'TextChangedI'}, {
+    buffer = buf,
+    callback = function()
+      -- Cancel previous timer if it exists
+      if search_timer then
+        search_timer:stop()
+        search_timer:close()
+      end
+      
+      -- Set a short delay to avoid interfering with typing
+      search_timer = vim.loop.new_timer()
+      search_timer:start(200, 0, vim.schedule_wrap(function()
+        extract_text()
+        update_search(find_text)
+        search_timer:close()
+        search_timer = nil
+      end))
+    end
+  })
+  
+  -- Start in insert mode
+  vim.cmd('startinsert')
+end
+
+vim.keymap.set({'i', 'n'}, '<C-f>', function() sublime_replace() end, opts)
 
 -- Copy/Paste
 -- Visual mode: copy/cut with proper newline handling and Windows-like selection
