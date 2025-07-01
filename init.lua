@@ -868,10 +868,6 @@ vim.keymap.set('n', ':', ':', opts)
 -- Quick command mode access from insert mode  
 vim.keymap.set('i', '<C-;>', '<Esc>:', opts)
 
--- Tab navigation
-vim.keymap.set({'i', 'n'}, '<C-Tab>', '<Esc>:tabnext<CR>', opts)
-vim.keymap.set({'i', 'n'}, '<C-S-Tab>', '<Esc>:tabprevious<CR>', opts)
-vim.keymap.set({'i', 'n'}, '<C-t>', '<Esc>:tabnew<CR>a', opts)
 
 -- Toggle word wrap
 vim.keymap.set({'i', 'n'}, '<M-w>', function()

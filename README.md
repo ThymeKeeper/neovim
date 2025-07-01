@@ -8,17 +8,13 @@ This config transforms Neovim into a Windows-like text editor by:
 
 - **Permanently locking you in INSERT mode** - The Escape key is disabled. You literally cannot exit insert mode through normal means.
 - **Making all normal mode commands immediately return to insert mode** - Even if you somehow end up in normal mode, any key press will throw you back into insert.
-- **Implementing Windows-style keybindings** - Ctrl+S to save, Ctrl+A to select all, Ctrl+C/V for copy/paste, etc.
-- **Adding familiar text navigation** - Shift+arrows for selection, Ctrl+arrows for word jumping, Home/End keys work as expected.
-- **Auto-indenting and bracket matching** - Some modern conveniences are preserved.
+- **Implementing Windows-style keybindings** - Ctrl+S to save, Ctrl+A to select all, Ctrl+C/V for copy/paste, etc.Most keys work as expected for a windows user.
 
 ## Features
 
 ### File Operations
 - `Ctrl+S` - Save file (prompts for filename if new)
 - `Ctrl+Q` / `Alt+F4` - Quit (with save prompt if modified)
-- `Ctrl+Tab` / `Ctrl+Shift+Tab` - Switch between tabs
-- `Ctrl+T` - New tab
 
 ### Editing
 - `Ctrl+C` - Copy (works on selection or single character)
@@ -41,7 +37,6 @@ This config transforms Neovim into a Windows-like text editor by:
 - Mouse support for clicking and selecting
 - `Alt+W` - Toggle word wrap
 - `Ctrl+Shift+Up/Down` - Move lines up/down
- Terminal title shows current filename
 
 ## This config is for:
 
